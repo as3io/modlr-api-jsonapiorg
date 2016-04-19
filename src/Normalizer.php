@@ -58,15 +58,17 @@ final class Normalizer extends AbstractNormalizer
     {
         $flattened = [];
         if (!isset($data['attributes']) || !is_array($data['attributes'])) {
-            return $flattened;
+            return $data['attributes'] = [];
         }
 
         $keyMap = array_flip(array_keys($data['attributes']));
-        foreach ($metadata->getAttributes() as $key => $attrMeta) {
+        foreach ($metadata->getProperties() as $key => $propMeta) {
             if (!isset($keyMap[$key])) {
                 continue;
             }
-            $flattened[$key] = $data['attributes'][$key];
+            if (true === $metadata->hasAttribute($key) || true === $metadata->hasEmbed($key)) {
+                $flattened[$key] = $data['attributes'][$key];
+            }
         }
         return $flattened;
     }

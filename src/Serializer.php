@@ -6,8 +6,12 @@ use As3\Modlr\Api\AdapterInterface;
 use As3\Modlr\Api\SerializerException;
 use As3\Modlr\Api\SerializerInterface;
 use As3\Modlr\Metadata\AttributeMetadata;
+use As3\Modlr\Metadata\EmbeddedPropMetadata;
+use As3\Modlr\Metadata\EmbedMetadata;
 use As3\Modlr\Metadata\RelationshipMetadata;
-use As3\Modlr\Models\Collection;
+use As3\Modlr\Models\Collections\Collection;
+use As3\Modlr\Models\Collections\EmbedCollection;
+use As3\Modlr\Models\Embed;
 use As3\Modlr\Models\Model;
 
 /**
@@ -95,6 +99,11 @@ final class Serializer implements SerializerInterface
             $serialized['attributes'][$key] = $this->serializeAttribute($value, $attrMeta);
         }
 
+        foreach ($metadata->getEmbeds() as $key => $embeddedPropMeta) {
+            $value = $model->get($key);
+            $serialized['attributes'][$key] = $this->serializeEmbed($value, $embeddedPropMeta);
+        }
+
         $serialized['links'] = ['self' => $adapter->buildUrl($metadata, $model->getId())];
 
         $model->enableCollectionAutoInit(false);
@@ -111,7 +120,6 @@ final class Serializer implements SerializerInterface
     /**
      * Serializes an attribute value.
      *
-     * @todo    Need to handle complex data types, such as objects and arrays.
      * @param   mixed               $value
      * @param   AttributeMetadata   $attrMeta
      * @return  mixed
@@ -122,7 +130,71 @@ final class Serializer implements SerializerInterface
             $milliseconds = sprintf('%03d', round($value->format('u') / 1000, 0));
             return gmdate(sprintf('Y-m-d\TH:i:s.%s\Z', $milliseconds), $value->getTimestamp());
         }
+        if ('array' === $attrMeta->dataType && empty($value)) {
+            return [];
+        }
+        if ('object' === $attrMeta->dataType) {
+            return (array) $value;
+        }
         return $value;
+    }
+
+    /**
+     * Serializes an embed value.
+     *
+     * @param   Embed|EmbedCollection|null  $value
+     * @param   EmbeddedPropMetadata        $embeddedPropMeta
+     * @return  array|null
+     */
+    protected function serializeEmbed($value, EmbeddedPropMetadata $embeddedPropMeta)
+    {
+        $embedMeta = $embeddedPropMeta->embedMeta;
+        if (true === $embeddedPropMeta->isOne()) {
+            return $this->serializeEmbedOne($embedMeta, $value);
+        }
+        return $this->serializeEmbedMany($embedMeta, $value);
+    }
+
+    /**
+     * Serializes an embed one value.
+     *
+     * @param   EmbedMetadata   $embedMeta
+     * @param   Embed|null      $embed
+     * @return  array|null
+     */
+    protected function serializeEmbedOne(EmbedMetadata $embedMeta, Embed $embed = null)
+    {
+        if (null === $embed) {
+            return;
+        }
+        $serialized = [];
+        foreach ($embedMeta->getAttributes() as $key => $attrMeta) {
+            $serialized[$key] = $this->serializeAttribute($embed->get($key), $attrMeta);
+        }
+        foreach ($embedMeta->getEmbeds() as $key => $embeddedPropMeta) {
+            $serialized[$key] = $this->serializeEmbed($embed->get($key), $embeddedPropMeta);
+        }
+
+        return empty($serialized) ? null : $serialized;
+    }
+
+    /**
+     * Serializes an embed many value.
+     *
+     * @param   EmbedMetadata   $embedMeta
+     * @param   EmbedCollection $embed
+     * @return  array
+     */
+    protected function serializeEmbedMany(EmbedMetadata $embedMeta, EmbedCollection $collection)
+    {
+        $serialized = [];
+        foreach ($collection as $embed) {
+            if (!$embed instanceof Embed) {
+                continue;
+            }
+            $serialized[] = $this->serializeEmbedOne($embedMeta, $embed);
+        }
+        return $serialized;
     }
 
     /**
