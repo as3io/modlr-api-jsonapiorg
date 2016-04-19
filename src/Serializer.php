@@ -149,7 +149,7 @@ final class Serializer implements SerializerInterface
     protected function serializeEmbed($value, EmbeddedPropMetadata $embeddedPropMeta)
     {
         $embedMeta = $embeddedPropMeta->embedMeta;
-        if ($embeddedPropMeta->isOne()) {
+        if (true === $embeddedPropMeta->isOne()) {
             return $this->serializeEmbedOne($embedMeta, $value);
         }
         return $this->serializeEmbedMany($embedMeta, $value);
@@ -182,13 +182,16 @@ final class Serializer implements SerializerInterface
      * Serializes an embed many value.
      *
      * @param   EmbedMetadata   $embedMeta
-     * @param   Embed|null      $embed
+     * @param   EmbedCollection $embed
      * @return  array
      */
     protected function serializeEmbedMany(EmbedMetadata $embedMeta, EmbedCollection $collection)
     {
         $serialized = [];
         foreach ($collection as $embed) {
+            if (!$embed instanceof Embed) {
+                continue;
+            }
             $serialized[] = $this->serializeEmbedOne($embedMeta, $embed);
         }
         return $serialized;
