@@ -46,14 +46,18 @@ final class Serializer implements SerializerInterface
      */
     public function serializeCollection(Collection $collection, AdapterInterface $adapter)
     {
-        return $this->serializeArray($collection->allWithoutLoad(), $adapter);
+        return $this->serializeArray($collection->allWithoutLoad(), $adapter, $collection->getTotalCount());
     }
 
     /**
      * {@inheritDoc}
      */
-    public function serializeArray(array $models, AdapterInterface $adapter)
+    public function serializeArray(array $models, AdapterInterface $adapter, $totalCount = null)
     {
+        $serialized = [];
+        if (0 === $this->depth && !empty($totalCount)) {
+            $serialized = $this->appendPaginationLinks($adapter, $totalCount, $serialized);
+        }
         $serialized['data'] = [];
         foreach ($models as $model) {
             $serialized['data'][] = $this->serializeModel($model, $adapter);
@@ -71,6 +75,52 @@ final class Serializer implements SerializerInterface
                 ['status' => (String) $httpCode, 'title' => $title, 'detail' => $message],
             ],
         ]);
+    }
+
+    /**
+     * Appends the pagination links to the serialized data.
+     *
+     * @param   AdapterInterface    $adapter
+     * @param   int                 $totalCount
+     * @param   array               $serialized
+     * @return  array
+     */
+    protected function appendPaginationLinks(AdapterInterface $adapter, $totalCount, array $serialized)
+    {
+        $totalCount = (Integer) $totalCount;
+        $original = $adapter->getRequest();
+        $pagination = $original->getPagination();
+        $displayed = ($pagination['offset'] + 1) * $pagination['limit'];
+
+        $request = clone $adapter->getRequest();
+        if (false === $request->hasPagination()) {
+            return $serialized;
+        }
+
+        // first
+        $request->setPagination(0, $pagination['limit']);
+        $first = $request->getUrl();
+
+        // last
+        $lastOffset = floor($totalCount / $pagination['limit']);
+        $request->setPagination($lastOffset * $pagination['limit'], $pagination['limit']);
+        $last = $request->getUrl();
+
+        // prev
+        $prev = null;
+        if ($pagination['offset'] > 0) {
+            $request->setPagination($pagination['offset'] - $pagination['limit'], $pagination['limit']);
+            $prev = $request->getUrl();
+        }
+
+        // next
+        $next = null;
+        if ($displayed < $totalCount) {
+            $request->setPagination(($pagination['offset'] + 1) * $pagination['limit'], $pagination['limit']);
+            $next = $request->getUrl();
+        }
+        $serialized['links'] = ['first' => $first, 'last' => $last, 'prev' => $prev, 'next' => $next];
+        return $serialized;
     }
 
     /**
@@ -95,11 +145,17 @@ final class Serializer implements SerializerInterface
         }
 
         foreach ($metadata->getAttributes() as $key => $attrMeta) {
+            if (false === $attrMeta->shouldSerialize()) {
+                continue;
+            }
             $value = $model->get($key);
             $serialized['attributes'][$key] = $this->serializeAttribute($value, $attrMeta);
         }
 
         foreach ($metadata->getEmbeds() as $key => $embeddedPropMeta) {
+            if (false === $attrMeta->shouldSerialize()) {
+                continue;
+            }
             $value = $model->get($key);
             $serialized['attributes'][$key] = $this->serializeEmbed($value, $embeddedPropMeta);
         }
@@ -109,6 +165,9 @@ final class Serializer implements SerializerInterface
         $model->enableCollectionAutoInit(false);
         $this->increaseDepth();
         foreach ($metadata->getRelationships() as $key => $relMeta) {
+            if (false === $attrMeta->shouldSerialize()) {
+                continue;
+            }
             $relationship = $model->get($key);
             $serialized['relationships'][$key] = $this->serializeRelationship($model, $relationship, $relMeta, $adapter);
         }
