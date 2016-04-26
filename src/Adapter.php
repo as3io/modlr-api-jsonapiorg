@@ -17,29 +17,34 @@ final class Adapter extends AbstractAdapter
     /**
      * {@inheritDoc}
      */
+    public function buildUrl(EntityMetadata $metadata, $identifier, $relFieldKey = null, $isRelatedLink = false)
+    {
+        $url = sprintf('%s://%s%s/%s/%s',
+            $this->config->getScheme(),
+            $this->config->getHost(),
+            $this->config->getRootEndpoint(),
+            $metadata->type,
+            $identifier
+        );
+
+        if (null !== $relFieldKey) {
+            if (false === $isRelatedLink) {
+                $url .= '/relationships';
+            }
+            $url .= sprintf('/%s', $relFieldKey);
+        }
+        return $url;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     public function processRequest(Rest\RestRequest $request)
     {
+        $this->request = $request;
         switch ($request->getMethod()) {
             case 'GET':
-                if (true === $request->hasIdentifier()) {
-                    if (false === $request->isRelationship() && false === $request->hasFilters()) {
-                        return $this->findRecord($request->getEntityType(), $request->getIdentifier());
-                    }
-                    if (true === $request->isRelationshipRetrieve()) {
-                        return $this->findRelationship($request->getEntityType(), $request->getIdentifier(), $request->getRelationshipFieldKey());
-                    }
-                    throw AdapterException::badRequest('No GET handler found.');
-                } else {
-                    if (true === $request->isAutocomplete()) {
-                        // @todo Eventually add pagination (limit/skip)
-                        return $this->autocomplete($request->getEntityType(), $request->getAutocompleteKey(), $request->getAutocompleteValue());
-                    }
-                    if (true === $request->isQuery()) {
-                        return $this->findQuery($request->getEntityType(), $request->getQueryCriteria());
-                    }
-                    return $this->findAll($request->getEntityType(), []); //, $request->getPagination(), $request->getFieldset(), $request->getInclusions(), $request->getSorting());
-                }
-                throw AdapterException::badRequest('No GET handler found.');
+                return $this->handleGetRequest($request);
             case 'POST':
                 // @todo Must validate JSON content type
                 if (false === $request->hasIdentifier()) {
@@ -67,6 +72,39 @@ final class Adapter extends AbstractAdapter
             default:
                 throw AdapterException::badRequest(sprintf('The request method "%s" is not supported.', $request->getMethod()));
         }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    protected function createRestResponse($status, Rest\RestPayload $payload = null)
+    {
+        $restResponse = new Rest\RestResponse($status, $payload);
+        $restResponse->addHeader('content-type', 'application/json');
+        return $restResponse;
+    }
+
+    /**
+     * Validates that the payload type key matches the endpoint type key.
+     * Also handles proper type keys for polymorphic endpoints.
+     *
+     * @param   string  $payloadTypeKey
+     * @param   string  $endpointTypeKey
+     * @throws  AdpaterException
+     */
+    protected function validatePayloadType($payloadTypeKey, $endpointTypeKey)
+    {
+        $metadata = $this->getStore()->getMetadataForType($endpointTypeKey);
+
+        if (false === $metadata->isPolymorphic() && $payloadTypeKey === $endpointTypeKey) {
+            return;
+        }
+
+        if (true === $metadata->isPolymorphic() && in_array($payloadTypeKey, $metadata->ownedTypes)) {
+            return;
+        }
+        $expected = (true === $metadata->isPolymorphic()) ? implode(', ', $metadata->ownedTypes) : $endpointTypeKey;
+        throw AdapterException::badRequest(sprintf('The payload "type" member does not match the API endpoint. Expected one of "%s" but received "%s"', $expected, $payloadTypeKey));
     }
 
     /**
@@ -107,57 +145,33 @@ final class Adapter extends AbstractAdapter
     }
 
     /**
-     * Validates that the payload type key matches the endpoint type key.
-     * Also handles proper type keys for polymorphic endpoints.
+     * Handles a GET request.
      *
-     * @param   string  $payloadTypeKey
-     * @param   string  $endpointTypeKey
-     * @throws  AdpaterException
+     * @param   Rest\RestRequest     $request
+     * @return  Rest\RestResponse
+     * @throws  AdapterException
      */
-    protected function validatePayloadType($payloadTypeKey, $endpointTypeKey)
+    private function handleGetRequest(Rest\RestRequest $request)
     {
-        $metadata = $this->getStore()->getMetadataForType($endpointTypeKey);
-
-        if (false === $metadata->isPolymorphic() && $payloadTypeKey === $endpointTypeKey) {
-            return;
-        }
-
-        if (true === $metadata->isPolymorphic() && in_array($payloadTypeKey, $metadata->ownedTypes)) {
-            return;
-        }
-        $expected = (true === $metadata->isPolymorphic()) ? implode(', ', $metadata->ownedTypes) : $endpointTypeKey;
-        throw AdapterException::badRequest(sprintf('The payload "type" member does not match the API endpoint. Expected one of "%s" but received "%s"', $expected, $payloadTypeKey));
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    public function buildUrl(EntityMetadata $metadata, $identifier, $relFieldKey = null, $isRelatedLink = false)
-    {
-        $url = sprintf('%s://%s%s/%s/%s',
-            $this->config->getScheme(),
-            $this->config->getHost(),
-            $this->config->getRootEndpoint(),
-            $metadata->type,
-            $identifier
-        );
-
-        if (null !== $relFieldKey) {
-            if (false === $isRelatedLink) {
-                $url .= '/relationships';
+        if (true === $request->hasIdentifier()) {
+            if (false === $request->isRelationship() && false === $request->hasFilters()) {
+                return $this->findRecord($request->getEntityType(), $request->getIdentifier());
             }
-            $url .= sprintf('/%s', $relFieldKey);
+            if (true === $request->isRelationshipRetrieve()) {
+                return $this->findRelationship($request->getEntityType(), $request->getIdentifier(), $request->getRelationshipFieldKey());
+            }
+            throw AdapterException::badRequest('No GET handler found.');
+        } else {
+            if (true === $request->isAutocomplete()) {
+                // @todo Eventually add pagination (limit/skip)
+                return $this->autocomplete($request->getEntityType(), $request->getAutocompleteKey(), $request->getAutocompleteValue());
+            }
+            if (true === $request->isQuery()) {
+                return $this->findQuery($request->getEntityType(), $request->getQueryCriteria(), $request->getFieldset(), $request->getSorting(), $request->getPagination(), $request->getInclusions());
+            }
+            return $this->findAll($request->getEntityType(), [], $request->getFieldset(), $request->getSorting(), $request->getPagination(), $request->getInclusions());
         }
-        return $url;
+        throw AdapterException::badRequest('No GET handler found.');
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    protected function createRestResponse($status, Rest\RestPayload $payload = null)
-    {
-        $restResponse = new Rest\RestResponse($status, $payload);
-        $restResponse->addHeader('content-type', 'application/json');
-        return $restResponse;
-    }
 }
