@@ -90,7 +90,7 @@ final class Serializer implements SerializerInterface
         $totalCount = (Integer) $totalCount;
         $original = $adapter->getRequest();
         $pagination = $original->getPagination();
-        $displayed = ($pagination['offset'] + 1) * $pagination['limit'];
+        $displayed = $pagination['offset'] + $pagination['limit'];
 
         $request = clone $adapter->getRequest();
         if (false === $request->hasPagination()) {
@@ -116,7 +116,7 @@ final class Serializer implements SerializerInterface
         // next
         $next = null;
         if ($displayed < $totalCount) {
-            $request->setPagination(($pagination['offset'] + 1) * $pagination['limit'], $pagination['limit']);
+            $request->setPagination($pagination['offset'] + $pagination['limit'], $pagination['limit']);
             $next = $request->getUrl();
         }
         $serialized['links'] = ['first' => $first, 'last' => $last, 'prev' => $prev, 'next' => $next];
