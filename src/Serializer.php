@@ -165,7 +165,7 @@ final class Serializer implements SerializerInterface
         $model->enableCollectionAutoInit(false);
         $this->increaseDepth();
         foreach ($metadata->getRelationships() as $key => $relMeta) {
-            if (false === $attrMeta->shouldSerialize()) {
+            if (false === $relMeta->shouldSerialize()) {
                 continue;
             }
             $relationship = $model->get($key);
